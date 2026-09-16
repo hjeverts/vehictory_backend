@@ -28,7 +28,6 @@ public class VehiclesController(VehictoryDbContext db) : ControllerBase
 
     private static VehicleResponse ToResponse(Vehicle v, Guid userId) => new(
         v.Id, v.Naam, v.Merk, v.Type, v.Bouwjaar, v.Aankoopdatum, v.UserId == userId, v.User!.Name,
-        AuthController.ToDataUrl(v.FotoContentType, v.Foto),
         AuthController.ToDataUrl("image/jpeg", v.FotoThumbnail));
 
     [HttpGet]
@@ -49,7 +48,6 @@ public class VehiclesController(VehictoryDbContext db) : ControllerBase
 
         return Ok(vehicles.Select(v => new VehicleResponse(
             v.Id, v.Naam, v.Merk, v.Type, v.Bouwjaar, v.Aankoopdatum, v.UserId == userId, v.EigenaarNaam,
-            null,
             AuthController.ToDataUrl("image/jpeg", v.FotoThumbnail))));
     }
 
@@ -57,11 +55,34 @@ public class VehiclesController(VehictoryDbContext db) : ControllerBase
     public async Task<ActionResult<VehicleResponse>> GetById(int id)
     {
         var userId = this.GetUserId();
-        var vehicle = await db.Vehicles.Include(v => v.User)
-            .SingleOrDefaultAsync(v => v.Id == id && (v.UserId == userId || v.Shares.Any(s => s.UserId == userId)));
+        // Projectie op DB-niveau: de zware Foto-kolom wordt hier bewust niet opgehaald,
+        // de detailpagina haalt de volledige foto lazy op via GET /{id}/photo.
+        var vehicle = await db.Vehicles
+            .Where(v => v.Id == id && (v.UserId == userId || v.Shares.Any(s => s.UserId == userId)))
+            .Select(v => new
+            {
+                v.Id, v.Naam, v.Merk, v.Type, v.Bouwjaar, v.Aankoopdatum, v.UserId,
+                EigenaarNaam = v.User!.Name, v.FotoThumbnail,
+            })
+            .SingleOrDefaultAsync();
         if (vehicle is null) return NotFound();
 
-        return Ok(ToResponse(vehicle, userId));
+        return Ok(new VehicleResponse(
+            vehicle.Id, vehicle.Naam, vehicle.Merk, vehicle.Type, vehicle.Bouwjaar, vehicle.Aankoopdatum,
+            vehicle.UserId == userId, vehicle.EigenaarNaam,
+            AuthController.ToDataUrl("image/jpeg", vehicle.FotoThumbnail)));
+    }
+
+    // Aparte endpoint voor de volledige foto (i.p.v. inline base64 in GetById): voorkomt dat elke
+    // detailpagina-load 850KB+ JSON meestuurt, en maakt echte HTTP-caching van de foto mogelijk.
+    [HttpGet("{id:int}/photo")]
+    public async Task<IActionResult> GetPhoto(int id)
+    {
+        var userId = this.GetUserId();
+        var vehicle = await GetAccessibleVehicle(id, userId);
+        if (vehicle?.Foto is null) return NotFound();
+
+        return File(vehicle.Foto, vehicle.FotoContentType ?? "image/jpeg");
     }
 
     [HttpPost]

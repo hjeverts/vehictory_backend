@@ -11,7 +11,6 @@ public record VehicleResponse(
     DateOnly? Aankoopdatum,
     bool IsOwner,
     string EigenaarNaam,
-    string? FotoDataUrl,
     string? FotoThumbnailDataUrl
 );
 
