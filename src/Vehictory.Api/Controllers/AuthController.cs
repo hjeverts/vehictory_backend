@@ -34,6 +34,8 @@ public class AuthController(
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request)
     {
+        if (request.Password.Length < 8)
+            return BadRequest("Het wachtwoord moet minimaal 8 tekens bevatten.");
         if (await db.Users.AnyAsync(u => u.Email == request.Email))
             return Conflict("Er bestaat al een account met dit e-mailadres.");
 

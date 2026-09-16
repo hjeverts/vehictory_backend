@@ -2,6 +2,7 @@ using System.Text;
 using Vehictory.Api.Data;
 using Vehictory.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
@@ -111,6 +112,21 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
+
+// Verzoeken passeren twee interne, door onszelf beheerde proxy-hops voor ze de API
+// bereiken (host-nginx -> frontend-container-nginx, zie vehictory_frontend/nginx.conf),
+// vandaar ForwardLimit 2. De API is niet rechtstreeks vanaf het publieke internet
+// bereikbaar (poort alleen aan 127.0.0.1 gebonden), dus deze headers zijn hier te
+// vertrouwen; zonder deze middleware ziet de API voor elk verzoek hetzelfde interne
+// proxy-adres in plaats van het echte client-IP.
+var forwardedHeadersOptions = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+    ForwardLimit = 2,
+};
+forwardedHeadersOptions.KnownIPNetworks.Clear();
+forwardedHeadersOptions.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedHeadersOptions);
 
 app.UseHttpsRedirection();
 app.UseCors(CorsPolicy);
