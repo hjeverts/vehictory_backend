@@ -31,6 +31,10 @@ public class AuthController(
     private const int ThumbnailJpegQuality = 75;
     private const int MaxFailedLoginAttempts = 5;
     private static readonly TimeSpan LoginLockoutWindow = TimeSpan.FromMinutes(15);
+    private const int MaxRegisterAttemptsPerIp = 10;
+    private static readonly TimeSpan RegisterWindow = TimeSpan.FromHours(1);
+    private const int MaxPasswordResetRequestsPerEmail = 5;
+    private static readonly TimeSpan PasswordResetWindow = TimeSpan.FromHours(1);
 
     // Alleen de Android-app stuurt deze header mee; de webapp niet, en krijgt de
     // refresh-token dus uitsluitend via de httpOnly cookie (zie IssueSessionAsync).
@@ -41,6 +45,12 @@ public class AuthController(
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
     {
+        var registerKey = $"register-attempts:{GetClientIp() ?? "unknown"}";
+        if (cache.TryGetValue<int>(registerKey, out var registerAttempts) && registerAttempts >= MaxRegisterAttemptsPerIp)
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                "Te veel registratiepogingen vanaf dit adres. Probeer het later opnieuw.");
+        cache.Set(registerKey, registerAttempts + 1, RegisterWindow);
+
         if (request.Password.Length < 8)
             return BadRequest("Het wachtwoord moet minimaal 8 tekens bevatten.");
         if (await db.Users.AnyAsync(u => u.Email == request.Email, cancellationToken))
@@ -188,6 +198,12 @@ public class AuthController(
         }
 
         var email = request.Email.Trim().ToLowerInvariant();
+        var resetKey = $"password-reset-attempts:{email}";
+        if (cache.TryGetValue<int>(resetKey, out var resetAttempts) && resetAttempts >= MaxPasswordResetRequestsPerEmail)
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                "Te veel reset-aanvragen voor dit e-mailadres. Probeer het later opnieuw.");
+        cache.Set(resetKey, resetAttempts + 1, PasswordResetWindow);
+
         var user = await db.Users.SingleOrDefaultAsync(u => u.Email == email, cancellationToken);
         if (user is null)
             return Accepted();
