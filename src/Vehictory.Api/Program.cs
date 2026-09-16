@@ -55,6 +55,7 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
+builder.Services.AddMemoryCache();
 
 var app = builder.Build();
 

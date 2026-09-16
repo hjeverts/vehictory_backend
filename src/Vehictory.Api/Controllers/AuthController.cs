@@ -5,6 +5,7 @@ using Vehictory.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using System.Net.Mail;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.WebUtilities;
@@ -20,12 +21,15 @@ public class AuthController(
     VehictoryDbContext db,
     JwtTokenService jwtService,
     EmailService emailService,
+    IMemoryCache cache,
     ILogger<AuthController> logger) : ControllerBase
 {
     private const long MaxImageSize = 2 * 1024 * 1024;
     private const int AvatarMaxDimension = 512;
     private const int JpegQuality = 82;
     private const int ThumbnailJpegQuality = 75;
+    private const int MaxFailedLoginAttempts = 5;
+    private static readonly TimeSpan LoginLockoutWindow = TimeSpan.FromMinutes(15);
 
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request)
@@ -50,10 +54,20 @@ public class AuthController(
     [HttpPost("login")]
     public async Task<ActionResult<AuthResponse>> Login(LoginRequest request)
     {
-        var user = await db.Users.SingleOrDefaultAsync(u => u.Email == request.Email.Trim().ToLowerInvariant());
-        if (user is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
-            return Unauthorized("Ongeldige inloggegevens.");
+        var email = request.Email.Trim().ToLowerInvariant();
+        var attemptsKey = $"login-attempts:{email}";
+        if (cache.TryGetValue<int>(attemptsKey, out var attempts) && attempts >= MaxFailedLoginAttempts)
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                "Te veel mislukte inlogpogingen. Probeer het over enkele minuten opnieuw.");
 
+        var user = await db.Users.SingleOrDefaultAsync(u => u.Email == email);
+        if (user is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+        {
+            cache.Set(attemptsKey, attempts + 1, LoginLockoutWindow);
+            return Unauthorized("Ongeldige inloggegevens.");
+        }
+
+        cache.Remove(attemptsKey);
         var token = jwtService.GenerateToken(user);
         return Ok(ToAuthResponse(user, token));
     }
