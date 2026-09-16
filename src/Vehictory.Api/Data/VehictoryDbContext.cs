@@ -12,6 +12,7 @@ public class VehictoryDbContext(DbContextOptions<VehictoryDbContext> options) : 
     public DbSet<MaintenanceEntry> MaintenanceEntries => Set<MaintenanceEntry>();
     public DbSet<MaintenanceAttachment> MaintenanceAttachments => Set<MaintenanceAttachment>();
     public DbSet<VehicleShare> VehicleShares => Set<VehicleShare>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -63,6 +64,16 @@ public class VehictoryDbContext(DbContextOptions<VehictoryDbContext> options) : 
 
         modelBuilder.Entity<VehicleShare>()
             .HasIndex(s => new { s.VehicleId, s.UserId })
+            .IsUnique();
+
+        modelBuilder.Entity<RefreshToken>()
+            .HasOne(r => r.User)
+            .WithMany()
+            .HasForeignKey(r => r.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<RefreshToken>()
+            .HasIndex(r => r.TokenHash)
             .IsUnique();
     }
 }

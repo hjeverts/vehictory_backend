@@ -20,6 +20,7 @@ namespace Vehictory.Api.Controllers;
 public class AuthController(
     VehictoryDbContext db,
     JwtTokenService jwtService,
+    RefreshTokenService refreshTokenService,
     EmailService emailService,
     IMemoryCache cache,
     ILogger<AuthController> logger) : ControllerBase
@@ -31,12 +32,18 @@ public class AuthController(
     private const int MaxFailedLoginAttempts = 5;
     private static readonly TimeSpan LoginLockoutWindow = TimeSpan.FromMinutes(15);
 
+    // Alleen de Android-app stuurt deze header mee; de webapp niet, en krijgt de
+    // refresh-token dus uitsluitend via de httpOnly cookie (zie IssueSessionAsync).
+    private const string ClientTypeHeader = "X-Client-Type";
+    private const string RefreshTokenHeader = "X-Refresh-Token";
+    private const string RefreshCookieName = "vehictory_refresh";
+
     [HttpPost("register")]
-    public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request)
+    public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
     {
         if (request.Password.Length < 8)
             return BadRequest("Het wachtwoord moet minimaal 8 tekens bevatten.");
-        if (await db.Users.AnyAsync(u => u.Email == request.Email))
+        if (await db.Users.AnyAsync(u => u.Email == request.Email, cancellationToken))
             return Conflict("Er bestaat al een account met dit e-mailadres.");
 
         var user = new User
@@ -47,14 +54,13 @@ public class AuthController(
         };
 
         db.Users.Add(user);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(cancellationToken);
 
-        var token = jwtService.GenerateToken(user);
-        return Ok(ToAuthResponse(user, token));
+        return Ok(await IssueSessionAsync(user, cancellationToken));
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<AuthResponse>> Login(LoginRequest request)
+    public async Task<ActionResult<AuthResponse>> Login(LoginRequest request, CancellationToken cancellationToken)
     {
         var email = request.Email.Trim().ToLowerInvariant();
         var attemptsKey = $"login-attempts:{email}";
@@ -62,7 +68,7 @@ public class AuthController(
             return StatusCode(StatusCodes.Status429TooManyRequests,
                 "Te veel mislukte inlogpogingen. Probeer het over enkele minuten opnieuw.");
 
-        var user = await db.Users.SingleOrDefaultAsync(u => u.Email == email);
+        var user = await db.Users.SingleOrDefaultAsync(u => u.Email == email, cancellationToken);
         if (user is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
         {
             cache.Set(attemptsKey, attempts + 1, LoginLockoutWindow);
@@ -70,9 +76,104 @@ public class AuthController(
         }
 
         cache.Remove(attemptsKey);
-        var token = jwtService.GenerateToken(user);
-        return Ok(ToAuthResponse(user, token));
+        return Ok(await IssueSessionAsync(user, cancellationToken));
     }
+
+    [HttpPost("refresh")]
+    [AllowAnonymous]
+    public async Task<ActionResult<AuthResponse>> Refresh(CancellationToken cancellationToken)
+    {
+        var incoming = GetIncomingRefreshToken();
+        if (incoming is null) return Unauthorized();
+
+        var outcome = await refreshTokenService.RotateAsync(incoming, GetClientIp(), GetUserAgent(), cancellationToken);
+        if (outcome.Result != RefreshResult.Success || outcome.Entity is null || outcome.RawToken is null)
+        {
+            ClearRefreshCookie();
+            return Unauthorized("Sessie verlopen, log opnieuw in.");
+        }
+
+        var user = await db.Users.SingleAsync(u => u.Id == outcome.Entity.UserId, cancellationToken);
+        SetRefreshCookie(outcome.RawToken, outcome.Entity.ExpiresAt);
+        var accessToken = jwtService.GenerateToken(user);
+        return Ok(ToAuthResponse(user, accessToken, IsAndroidClient() ? outcome.RawToken : null));
+    }
+
+    [HttpPost("logout")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Logout(CancellationToken cancellationToken)
+    {
+        var incoming = GetIncomingRefreshToken();
+        if (incoming is not null)
+            await refreshTokenService.RevokeAsync(incoming, cancellationToken);
+        ClearRefreshCookie();
+        return NoContent();
+    }
+
+    [Authorize]
+    [HttpGet("sessions")]
+    public async Task<ActionResult<List<SessionResponse>>> GetSessions(CancellationToken cancellationToken)
+    {
+        var incoming = GetIncomingRefreshToken();
+        var currentHash = incoming is null ? null : RefreshTokenService.Hash(incoming);
+        var sessions = await refreshTokenService.ListActiveAsync(this.GetUserId(), cancellationToken);
+
+        return Ok(sessions.Select(s => new SessionResponse(
+            s.Id,
+            s.CreatedAt,
+            s.LastUsedAt,
+            s.ExpiresAt,
+            s.UserAgent,
+            s.CreatedByIp,
+            currentHash is not null && currentHash.SequenceEqual(s.TokenHash))).ToList());
+    }
+
+    [Authorize]
+    [HttpDelete("sessions/{id:guid}")]
+    public async Task<IActionResult> RevokeSession(Guid id, CancellationToken cancellationToken)
+    {
+        var revoked = await refreshTokenService.RevokeByIdAsync(id, this.GetUserId(), cancellationToken);
+        if (!revoked) return NotFound();
+        return NoContent();
+    }
+
+    private async Task<AuthResponse> IssueSessionAsync(User user, CancellationToken cancellationToken)
+    {
+        var (rawRefreshToken, entity) = await refreshTokenService.IssueAsync(
+            user.Id, GetClientIp(), GetUserAgent(), cancellationToken);
+        SetRefreshCookie(rawRefreshToken, entity.ExpiresAt);
+        var accessToken = jwtService.GenerateToken(user);
+        return ToAuthResponse(user, accessToken, IsAndroidClient() ? rawRefreshToken : null);
+    }
+
+    private bool IsAndroidClient() =>
+        string.Equals(Request.Headers[ClientTypeHeader].ToString(), "android", StringComparison.OrdinalIgnoreCase);
+
+    private string? GetIncomingRefreshToken()
+    {
+        var headerValue = Request.Headers[RefreshTokenHeader].ToString();
+        if (!string.IsNullOrEmpty(headerValue)) return headerValue;
+        return Request.Cookies.TryGetValue(RefreshCookieName, out var cookieValue) ? cookieValue : null;
+    }
+
+    private void SetRefreshCookie(string rawToken, DateTime expiresAt)
+    {
+        Response.Cookies.Append(RefreshCookieName, rawToken, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Strict,
+            Path = "/api/auth",
+            Expires = new DateTimeOffset(expiresAt, TimeSpan.Zero),
+        });
+    }
+
+    private void ClearRefreshCookie() =>
+        Response.Cookies.Delete(RefreshCookieName, new CookieOptions { Path = "/api/auth" });
+
+    private string? GetClientIp() => HttpContext.Connection.RemoteIpAddress?.ToString();
+
+    private string? GetUserAgent() => Request.Headers.UserAgent.ToString() is { Length: > 0 } ua ? ua : null;
 
     [HttpPost("password-reset")]
     public async Task<IActionResult> RequestPasswordReset(
@@ -193,8 +294,8 @@ public class AuthController(
     private async Task<User> GetCurrentUser() =>
         await db.Users.SingleAsync(u => u.Id == this.GetUserId());
 
-    private static AuthResponse ToAuthResponse(User user, string token) =>
-        new(token, user.Email, user.Name, ToDataUrl(user.AvatarContentType, user.Avatar), user.IsAdmin);
+    private static AuthResponse ToAuthResponse(User user, string token, string? refreshToken = null) =>
+        new(token, user.Email, user.Name, ToDataUrl(user.AvatarContentType, user.Avatar), user.IsAdmin, refreshToken);
 
     // Decodeert de upload, corrigeert EXIF-rotatie en hercomprimeert naar JPEG op maxDimension
     // (langste zijde, in pixels). Geef thumbnailDimension mee om ook een kleine variant te

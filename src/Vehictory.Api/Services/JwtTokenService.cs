@@ -11,7 +11,9 @@ public class JwtOptions
     public required string Key { get; set; }
     public required string Issuer { get; set; }
     public required string Audience { get; set; }
-    public int ExpiryMinutes { get; set; } = 60 * 24 * 7; // 7 dagen, prettig voor mobile app
+    // Kort houden: de refresh-token (zie RefreshTokenService) zorgt voor een lange sessie
+    // zonder opnieuw inloggen, en is intrekbaar; deze access-token is dat niet.
+    public int ExpiryMinutes { get; set; } = 15;
 }
 
 public class JwtTokenService(Microsoft.Extensions.Options.IOptions<JwtOptions> options)

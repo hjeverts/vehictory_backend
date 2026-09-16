@@ -16,6 +16,7 @@ builder.Services.AddDbContext<VehictoryDbContext>(options => options.UseNpgsql(c
 // --- JWT Auth ---
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddSingleton<JwtTokenService>();
+builder.Services.AddScoped<RefreshTokenService>();
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection("Email"));
 builder.Services.AddSingleton<EmailService>();
 builder.Services.Configure<AdminOptions>(builder.Configuration.GetSection("Admin"));
@@ -50,7 +51,9 @@ builder.Services.AddCors(options =>
     options.AddPolicy(CorsPolicy, policy =>
     {
         var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
-        policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod();
+        // AllowCredentials is nodig zodat de browser de httpOnly refresh-cookie meestuurt
+        // en accepteert; vereist expliciete origins (geen wildcard), wat hier al zo was.
+        policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
     });
 });
 
