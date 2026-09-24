@@ -83,22 +83,17 @@ public class FuelEntriesController(VehictoryDbContext db) : ControllerBase
             .Where(f => f.VehicleId == vehicleId)
             .OrderBy(f => f.Odometer)
             .ToListAsync();
-        var onderhoud = await db.MaintenanceEntries
+        var onderhoudsKosten = await db.MaintenanceEntries
             .Where(m => m.VehicleId == vehicleId)
-            .Select(m => new { m.Datum, m.Kosten })
-            .ToListAsync();
+            .SumAsync(m => m.Kosten ?? 0);
         var vasteLastenPosten = await db.RecurringCosts
             .Where(r => r.VehicleId == vehicleId)
             .ToListAsync();
 
         var vandaag = DateOnly.FromDateTime(DateTime.Today);
-        var vasteLastenTermijnen = vasteLastenPosten
-            .SelectMany(r => r.Termijnen(vandaag).Select(datum => new { Datum = datum, r.Bedrag }))
-            .ToList();
 
         var brandstofKosten = entries.Sum(f => f.Bedrag);
-        var onderhoudsKosten = onderhoud.Sum(m => m.Kosten ?? 0);
-        var vasteLasten = vasteLastenTermijnen.Sum(t => t.Bedrag);
+        var vasteLasten = vasteLastenPosten.Sum(r => r.Bedrag * r.Termijnen(vandaag).Count());
         var totaleKosten = brandstofKosten + onderhoudsKosten + vasteLasten;
 
         var totaalLiters = entries.Sum(f => f.Volume);
@@ -117,18 +112,8 @@ public class FuelEntriesController(VehictoryDbContext db) : ControllerBase
         var gemPrijsPerLiter = totaalLiters > 0 ? brandstofKosten / totaalLiters : 0;
         decimal? kostenPerKm = totaleAfstand > 0 ? totaleKosten / totaleAfstand : null;
 
-        // Kosten per jaar: totale kosten gedeeld door de periode van de eerste registratie t/m vandaag.
-        // Onder de 30 dagen levert extrapoleren naar een jaar geen zinnig getal op.
-        var eersteDatum = entries.Select(f => f.Datum)
-            .Concat(onderhoud.Select(m => m.Datum))
-            .Concat(vasteLastenTermijnen.Select(t => t.Datum))
-            .DefaultIfEmpty(vandaag)
-            .Min();
-        var dagen = vandaag.DayNumber - eersteDatum.DayNumber;
-        decimal? kostenPerJaar = dagen >= 30 ? totaleKosten / dagen * 365.25m : null;
-
         return Ok(new VehicleStatsResponse(
             vehicleId, totaleKosten, brandstofKosten, onderhoudsKosten, vasteLasten, totaalLiters,
-            verbruikL100km, gemPrijsPerLiter, laatsteOdometer, totaleAfstand, kostenPerKm, kostenPerJaar));
+            verbruikL100km, gemPrijsPerLiter, laatsteOdometer, totaleAfstand, kostenPerKm));
     }
 }

@@ -98,7 +98,7 @@ public record RecurringCostResponse(
 
 // Statistieken t.b.v. dashboard/grafieken (vervangt Dash-plotly visualisaties).
 // TotaleKosten = brandstof + onderhoud + vaste lasten (t/m vandaag). TotaleAfstandKm = hoogste − laagste
-// km-stand van de tankbeurten. KostenPerKm/KostenPerJaar zijn null zolang er te weinig gegevens zijn.
+// km-stand van de tankbeurten. KostenPerKm is null zolang er geen afstand is.
 public record VehicleStatsResponse(
     int VehicleId,
     decimal TotaleKosten,
@@ -110,6 +110,5 @@ public record VehicleStatsResponse(
     decimal GemiddeldePrijsPerLiter,
     int LaatsteOdometer,
     int TotaleAfstandKm,
-    decimal? KostenPerKm,
-    decimal? KostenPerJaar
+    decimal? KostenPerKm
 );
