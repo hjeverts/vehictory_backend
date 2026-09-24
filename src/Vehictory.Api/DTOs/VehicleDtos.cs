@@ -2,7 +2,21 @@ using Vehictory.Api.Models;
 
 namespace Vehictory.Api.DTOs;
 
-public record VehicleRequest(string Naam, string? Merk, string? Type, int? Bouwjaar, DateOnly? Aankoopdatum);
+public record VehicleRequest(
+    string Naam,
+    string? Merk,
+    string? Type,
+    int? Bouwjaar,
+    DateOnly? Aankoopdatum,
+    decimal? Aanschafprijs,
+    decimal? Restwaarde,
+    List<AfschrijvingsStaffelDto>? Afschrijvingstabel,
+    DateOnly? Verkoopdatum,
+    decimal? Verkoopprijs
+);
+
+// Staffel uit de afschrijvingstabel: vanaf deze leeftijd (jaren sinds bouwjaar) dit percentage per maand.
+public record AfschrijvingsStaffelDto(int VanafLeeftijd, decimal PercentagePerMaand);
 
 public record VehicleResponse(
     int Id,
@@ -11,6 +25,11 @@ public record VehicleResponse(
     string? Type,
     int? Bouwjaar,
     DateOnly? Aankoopdatum,
+    decimal? Aanschafprijs,
+    decimal? Restwaarde,
+    List<AfschrijvingsStaffelDto> Afschrijvingstabel,
+    DateOnly? Verkoopdatum,
+    decimal? Verkoopprijs,
     bool IsOwner,
     string EigenaarNaam,
     string? FotoThumbnailDataUrl
@@ -97,14 +116,19 @@ public record RecurringCostResponse(
 );
 
 // Statistieken t.b.v. dashboard/grafieken (vervangt Dash-plotly visualisaties).
-// TotaleKosten = brandstof + onderhoud + vaste lasten (t/m vandaag). TotaleAfstandKm = hoogste − laagste
-// km-stand van de tankbeurten. KostenPerKm is null zolang er geen afstand is.
+// TotaleKosten (Total Cost of Ownership) = brandstof + onderhoud + vaste lasten (t/m vandaag) + afschrijving.
+// Afschrijving: per volle maand het percentage uit de afschrijvingstabel bij de leeftijd van de auto, over de dan
+// resterende waarde (degressief) tot de restwaarde, of na verkoop aanschafprijs − verkoopprijs.
+// Boekwaarde is null zonder aanschafprijs. TotaleAfstandKm = hoogste − laagste km-stand van de tankbeurten.
+// KostenPerKm is null zolang er geen afstand is.
 public record VehicleStatsResponse(
     int VehicleId,
     decimal TotaleKosten,
     decimal BrandstofKosten,
     decimal OnderhoudsKosten,
     decimal VasteLasten,
+    decimal Afschrijving,
+    decimal? Boekwaarde,
     decimal TotaalLiters,
     decimal GemiddeldeVerbruikL100km,
     decimal GemiddeldePrijsPerLiter,

@@ -27,6 +27,9 @@ public class VehictoryDbContext(DbContextOptions<VehictoryDbContext> options) : 
             .HasForeignKey(v => v.UserId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        modelBuilder.Entity<Vehicle>()
+            .OwnsMany(v => v.Afschrijvingstabel, staffel => staffel.ToJson());
+
         modelBuilder.Entity<FuelEntry>()
             .HasOne(f => f.Vehicle)
             .WithMany(v => v.FuelEntries)

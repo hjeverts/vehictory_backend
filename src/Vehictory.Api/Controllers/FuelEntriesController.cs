@@ -26,7 +26,7 @@ public class FuelEntriesController(VehictoryDbContext db) : ControllerBase
     [HttpGet]
     public async Task<ActionResult<List<FuelEntryResponse>>> GetAll(int vehicleId)
     {
-        if (await GetAccessibleVehicle(vehicleId) is null) return NotFound();
+        if (await GetAccessibleVehicle(vehicleId) is not { } vehicle) return NotFound();
 
         var entries = await db.FuelEntries
             .Where(f => f.VehicleId == vehicleId)
@@ -77,7 +77,7 @@ public class FuelEntriesController(VehictoryDbContext db) : ControllerBase
     [HttpGet("/api/vehicles/{vehicleId:int}/stats")]
     public async Task<ActionResult<VehicleStatsResponse>> GetStats(int vehicleId)
     {
-        if (await GetAccessibleVehicle(vehicleId) is null) return NotFound();
+        if (await GetAccessibleVehicle(vehicleId) is not { } vehicle) return NotFound();
 
         var entries = await db.FuelEntries
             .Where(f => f.VehicleId == vehicleId)
@@ -94,7 +94,8 @@ public class FuelEntriesController(VehictoryDbContext db) : ControllerBase
 
         var brandstofKosten = entries.Sum(f => f.Bedrag);
         var vasteLasten = vasteLastenPosten.Sum(r => r.Bedrag * r.Termijnen(vandaag).Count());
-        var totaleKosten = brandstofKosten + onderhoudsKosten + vasteLasten;
+        var afschrijving = vehicle.Afschrijving(vandaag);
+        var totaleKosten = brandstofKosten + onderhoudsKosten + vasteLasten + afschrijving;
 
         var totaalLiters = entries.Sum(f => f.Volume);
         var eersteOdometer = entries.FirstOrDefault()?.Odometer ?? 0;
@@ -113,7 +114,8 @@ public class FuelEntriesController(VehictoryDbContext db) : ControllerBase
         decimal? kostenPerKm = totaleAfstand > 0 ? totaleKosten / totaleAfstand : null;
 
         return Ok(new VehicleStatsResponse(
-            vehicleId, totaleKosten, brandstofKosten, onderhoudsKosten, vasteLasten, totaalLiters,
+            vehicleId, totaleKosten, brandstofKosten, onderhoudsKosten, vasteLasten, afschrijving,
+            vehicle.Boekwaarde(vandaag), totaalLiters,
             verbruikL100km, gemPrijsPerLiter, laatsteOdometer, totaleAfstand, kostenPerKm));
     }
 }
