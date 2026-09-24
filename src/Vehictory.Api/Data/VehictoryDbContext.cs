@@ -11,6 +11,7 @@ public class VehictoryDbContext(DbContextOptions<VehictoryDbContext> options) : 
     public DbSet<MaintenanceType> MaintenanceTypes => Set<MaintenanceType>();
     public DbSet<MaintenanceEntry> MaintenanceEntries => Set<MaintenanceEntry>();
     public DbSet<MaintenanceAttachment> MaintenanceAttachments => Set<MaintenanceAttachment>();
+    public DbSet<RecurringCost> RecurringCosts => Set<RecurringCost>();
     public DbSet<VehicleShare> VehicleShares => Set<VehicleShare>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
@@ -49,6 +50,16 @@ public class VehictoryDbContext(DbContextOptions<VehictoryDbContext> options) : 
             .WithMany(m => m.Attachments)
             .HasForeignKey(a => a.MaintenanceEntryId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<RecurringCost>(e =>
+        {
+            e.HasOne(r => r.Vehicle)
+                .WithMany(v => v.RecurringCosts)
+                .HasForeignKey(r => r.VehicleId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.Property(r => r.Soort).HasConversion<string>().HasMaxLength(32);
+            e.Property(r => r.Frequentie).HasConversion<string>().HasMaxLength(16);
+        });
 
         modelBuilder.Entity<VehicleShare>()
             .HasOne(s => s.Vehicle)

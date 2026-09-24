@@ -47,7 +47,7 @@ public class MaintenanceEntriesController(VehictoryDbContext db) : ControllerBas
             .Select(m => new
             {
                 m.Id, m.VehicleId, m.Datum, m.Odometer, m.MaintenanceTypeId,
-                MaintenanceTypeNaam = m.MaintenanceType!.Naam, m.Notitie,
+                MaintenanceTypeNaam = m.MaintenanceType!.Naam, m.Notitie, m.Kosten,
                 Attachments = m.Attachments
                     .OrderBy(a => a.CreatedAt)
                     .Select(a => new { a.Id, a.FileName, a.ContentType, a.Thumbnail })
@@ -56,7 +56,7 @@ public class MaintenanceEntriesController(VehictoryDbContext db) : ControllerBas
             .ToListAsync();
 
         return Ok(rows.Select(m => new MaintenanceEntryResponse(
-            m.Id, m.VehicleId, m.Datum, m.Odometer, m.MaintenanceTypeId, m.MaintenanceTypeNaam, m.Notitie,
+            m.Id, m.VehicleId, m.Datum, m.Odometer, m.MaintenanceTypeId, m.MaintenanceTypeNaam, m.Notitie, m.Kosten,
             m.Attachments.Select(a => ToAttachmentResponse(a.Id, a.FileName, a.ContentType, a.Thumbnail)).ToList())));
     }
 
@@ -64,6 +64,8 @@ public class MaintenanceEntriesController(VehictoryDbContext db) : ControllerBas
     public async Task<ActionResult<MaintenanceEntryResponse>> Create(int vehicleId, MaintenanceEntryRequest request)
     {
         if (await GetAccessibleVehicle(vehicleId) is null) return NotFound();
+
+        if (request.Kosten < 0) return BadRequest("Kosten kunnen niet negatief zijn.");
 
         var type = await db.MaintenanceTypes.FindAsync(request.MaintenanceTypeId);
         if (type is null) return BadRequest("Onbekend onderhoudstype.");
@@ -75,6 +77,7 @@ public class MaintenanceEntriesController(VehictoryDbContext db) : ControllerBas
             Odometer = request.Odometer,
             MaintenanceTypeId = request.MaintenanceTypeId,
             Notitie = request.Notitie,
+            Kosten = request.Kosten,
         };
 
         db.MaintenanceEntries.Add(entry);
@@ -83,7 +86,7 @@ public class MaintenanceEntriesController(VehictoryDbContext db) : ControllerBas
         return CreatedAtAction(nameof(GetAll), new { vehicleId },
             new MaintenanceEntryResponse(
                 entry.Id, entry.VehicleId, entry.Datum, entry.Odometer, entry.MaintenanceTypeId, type.Naam,
-                entry.Notitie, []));
+                entry.Notitie, entry.Kosten, []));
     }
 
     [HttpDelete("{id:int}")]

@@ -57,7 +57,9 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddControllers();
+// Enums (bv. vaste-lastensoort/-frequentie) als leesbare strings in JSON i.p.v. getallen.
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 builder.Services.AddOpenApi();
 builder.Services.AddMemoryCache();
 

@@ -11,6 +11,7 @@ public class MaintenanceEntry
     public required int MaintenanceTypeId { get; set; }
     public MaintenanceType? MaintenanceType { get; set; }
     public string? Notitie { get; set; }
+    public decimal? Kosten { get; set; }               // euro's; optioneel
 
     public ICollection<MaintenanceAttachment> Attachments { get; set; } = [];
 }

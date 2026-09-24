@@ -83,14 +83,28 @@ public class FuelEntriesController(VehictoryDbContext db) : ControllerBase
             .Where(f => f.VehicleId == vehicleId)
             .OrderBy(f => f.Odometer)
             .ToListAsync();
+        var onderhoud = await db.MaintenanceEntries
+            .Where(m => m.VehicleId == vehicleId)
+            .Select(m => new { m.Datum, m.Kosten })
+            .ToListAsync();
+        var vasteLastenPosten = await db.RecurringCosts
+            .Where(r => r.VehicleId == vehicleId)
+            .ToListAsync();
 
-        if (entries.Count == 0)
-            return Ok(new VehicleStatsResponse(vehicleId, 0, 0, 0, 0, 0));
+        var vandaag = DateOnly.FromDateTime(DateTime.Today);
+        var vasteLastenTermijnen = vasteLastenPosten
+            .SelectMany(r => r.Termijnen(vandaag).Select(datum => new { Datum = datum, r.Bedrag }))
+            .ToList();
 
-        var totaleKosten = entries.Sum(f => f.Bedrag);
+        var brandstofKosten = entries.Sum(f => f.Bedrag);
+        var onderhoudsKosten = onderhoud.Sum(m => m.Kosten ?? 0);
+        var vasteLasten = vasteLastenTermijnen.Sum(t => t.Bedrag);
+        var totaleKosten = brandstofKosten + onderhoudsKosten + vasteLasten;
+
         var totaalLiters = entries.Sum(f => f.Volume);
-        var eersteOdometer = entries.First().Odometer;
-        var laatsteOdometer = entries.Last().Odometer;
+        var eersteOdometer = entries.FirstOrDefault()?.Odometer ?? 0;
+        var laatsteOdometer = entries.LastOrDefault()?.Odometer ?? 0;
+        var totaleAfstand = laatsteOdometer - eersteOdometer;
         var geldigeTankbeurten = entries
             .Skip(1)
             .Select((entry, index) => new { Entry = entry, Afstand = entry.Odometer - entries[index].Odometer })
@@ -100,9 +114,21 @@ public class FuelEntriesController(VehictoryDbContext db) : ControllerBase
         var litersVoorVerbruik = geldigeTankbeurten.Sum(x => x.Entry.Volume);
 
         var verbruikL100km = afstand > 0 ? (litersVoorVerbruik / afstand) * 100m : 0;
-        var gemPrijsPerLiter = totaalLiters > 0 ? totaleKosten / totaalLiters : 0;
+        var gemPrijsPerLiter = totaalLiters > 0 ? brandstofKosten / totaalLiters : 0;
+        decimal? kostenPerKm = totaleAfstand > 0 ? totaleKosten / totaleAfstand : null;
+
+        // Kosten per jaar: totale kosten gedeeld door de periode van de eerste registratie t/m vandaag.
+        // Onder de 30 dagen levert extrapoleren naar een jaar geen zinnig getal op.
+        var eersteDatum = entries.Select(f => f.Datum)
+            .Concat(onderhoud.Select(m => m.Datum))
+            .Concat(vasteLastenTermijnen.Select(t => t.Datum))
+            .DefaultIfEmpty(vandaag)
+            .Min();
+        var dagen = vandaag.DayNumber - eersteDatum.DayNumber;
+        decimal? kostenPerJaar = dagen >= 30 ? totaleKosten / dagen * 365.25m : null;
 
         return Ok(new VehicleStatsResponse(
-            vehicleId, totaleKosten, totaalLiters, verbruikL100km, gemPrijsPerLiter, laatsteOdometer));
+            vehicleId, totaleKosten, brandstofKosten, onderhoudsKosten, vasteLasten, totaalLiters,
+            verbruikL100km, gemPrijsPerLiter, laatsteOdometer, totaleAfstand, kostenPerKm, kostenPerJaar));
     }
 }

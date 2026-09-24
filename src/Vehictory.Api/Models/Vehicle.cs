@@ -17,5 +17,6 @@ public class Vehicle
 
     public ICollection<FuelEntry> FuelEntries { get; set; } = [];
     public ICollection<MaintenanceEntry> MaintenanceEntries { get; set; } = [];
+    public ICollection<RecurringCost> RecurringCosts { get; set; } = [];
     public ICollection<VehicleShare> Shares { get; set; } = [];
 }

@@ -1,3 +1,5 @@
+using Vehictory.Api.Models;
+
 namespace Vehictory.Api.DTOs;
 
 public record VehicleRequest(string Naam, string? Merk, string? Type, int? Bouwjaar, DateOnly? Aankoopdatum);
@@ -40,7 +42,7 @@ public record FuelEntryResponse(
     bool Vergeten
 );
 
-public record MaintenanceEntryRequest(DateOnly Datum, int Odometer, int MaintenanceTypeId, string? Notitie);
+public record MaintenanceEntryRequest(DateOnly Datum, int Odometer, int MaintenanceTypeId, string? Notitie, decimal? Kosten);
 
 public record MaintenanceEntryResponse(
     int Id,
@@ -50,6 +52,7 @@ public record MaintenanceEntryResponse(
     int MaintenanceTypeId,
     string MaintenanceTypeNaam,
     string? Notitie,
+    decimal? Kosten,
     List<MaintenanceAttachmentResponse> Attachments
 );
 
@@ -67,12 +70,46 @@ public record MaintenanceAttachmentResponse(
 public record MaintenanceTypeRequest(string Naam);
 public record MaintenanceTypeResponse(int Id, string Naam);
 
-// Statistieken t.b.v. dashboard/grafieken (vervangt Dash-plotly visualisaties)
+public record RecurringCostRequest(
+    RecurringCostSoort Soort,
+    decimal Bedrag,
+    RecurringCostFrequentie Frequentie,
+    DateOnly Startdatum,
+    DateOnly? Einddatum,
+    string? Notitie
+);
+
+// Einddatum is exclusief (op die datum valt geen termijn meer). Bij aanmaken krijgt een lopende post van
+// dezelfde soort de startdatum van de nieuwe als einddatum.
+// Termijnen = alle automatisch afgeleide betaaldatums t/m vandaag; TotaalBetaald = Bedrag × aantal termijnen.
+public record RecurringCostResponse(
+    int Id,
+    int VehicleId,
+    RecurringCostSoort Soort,
+    decimal Bedrag,
+    RecurringCostFrequentie Frequentie,
+    DateOnly Startdatum,
+    DateOnly? Einddatum,
+    string? Notitie,
+    List<DateOnly> Termijnen,
+    decimal TotaalBetaald,
+    DateOnly? VolgendeTermijn
+);
+
+// Statistieken t.b.v. dashboard/grafieken (vervangt Dash-plotly visualisaties).
+// TotaleKosten = brandstof + onderhoud + vaste lasten (t/m vandaag). TotaleAfstandKm = hoogste − laagste
+// km-stand van de tankbeurten. KostenPerKm/KostenPerJaar zijn null zolang er te weinig gegevens zijn.
 public record VehicleStatsResponse(
     int VehicleId,
     decimal TotaleKosten,
+    decimal BrandstofKosten,
+    decimal OnderhoudsKosten,
+    decimal VasteLasten,
     decimal TotaalLiters,
     decimal GemiddeldeVerbruikL100km,
     decimal GemiddeldePrijsPerLiter,
-    int LaatsteOdometer
+    int LaatsteOdometer,
+    int TotaleAfstandKm,
+    decimal? KostenPerKm,
+    decimal? KostenPerJaar
 );
