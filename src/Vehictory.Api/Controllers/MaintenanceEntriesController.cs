@@ -89,6 +89,39 @@ public class MaintenanceEntriesController(VehictoryDbContext db) : ControllerBas
                 entry.Notitie, entry.Kosten, []));
     }
 
+    // Wijzigt alleen de velden van de onderhoudsregel; bijlagen staan in een eigen tabel en blijven
+    // ongemoeid (die verwijder je expliciet via DeleteAttachment).
+    [HttpPut("{id:int}")]
+    public async Task<ActionResult<MaintenanceEntryResponse>> Update(int vehicleId, int id, MaintenanceEntryRequest request)
+    {
+        if (await GetAccessibleVehicle(vehicleId) is null) return NotFound();
+        if (request.Kosten < 0) return BadRequest("Kosten kunnen niet negatief zijn.");
+
+        var entry = await db.MaintenanceEntries.SingleOrDefaultAsync(m => m.Id == id && m.VehicleId == vehicleId);
+        if (entry is null) return NotFound();
+
+        var type = await db.MaintenanceTypes.FindAsync(request.MaintenanceTypeId);
+        if (type is null) return BadRequest("Onbekend onderhoudstype.");
+
+        entry.Datum = request.Datum;
+        entry.Odometer = request.Odometer;
+        entry.MaintenanceTypeId = request.MaintenanceTypeId;
+        entry.Notitie = request.Notitie;
+        entry.Kosten = request.Kosten;
+        await db.SaveChangesAsync();
+
+        var attachments = await db.MaintenanceAttachments
+            .Where(a => a.MaintenanceEntryId == id)
+            .OrderBy(a => a.CreatedAt)
+            .Select(a => new { a.Id, a.FileName, a.ContentType, a.Thumbnail })
+            .ToListAsync();
+
+        return Ok(new MaintenanceEntryResponse(
+            entry.Id, entry.VehicleId, entry.Datum, entry.Odometer, entry.MaintenanceTypeId, type.Naam,
+            entry.Notitie, entry.Kosten,
+            attachments.Select(a => ToAttachmentResponse(a.Id, a.FileName, a.ContentType, a.Thumbnail)).ToList()));
+    }
+
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int vehicleId, int id)
     {
